@@ -77,7 +77,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         for i in 0..total.len() {
             print!("{}\t", total[i]);
         }
-        println!();
+        println!("total");
     }
 
     Ok(())
