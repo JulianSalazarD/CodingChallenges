@@ -18,10 +18,6 @@ pub struct Config {
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() <= 1 {
-            return Err("not enough arguments");
-        }
-
         let mut file_path: Vec<String> = Vec::new();
         let mut count_option: Vec<CountOption> = Vec::new();
 
