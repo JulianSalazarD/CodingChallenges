@@ -4,8 +4,6 @@ pub enum JsonParserState {
     Start,
     InKey,
     InValue,
-    InSeparator,
-    SearchValue,
     EndObject,
 }
 
@@ -30,11 +28,13 @@ impl JsonObject {
         match self {
             JsonObject::JsonString(s) => is_str(&s),
             JsonObject::JsonObject(s) => {
-                if is_bool(&s.iter().collect::<String>()) {
+                if is_str(&s.iter().collect::<String>().trim()) {
                     true
-                } else if is_null(&s.iter().collect::<String>()) {
+                } else if is_bool(&s.iter().collect::<String>().trim()) {
                     true
-                } else if is_number(&s.iter().collect::<String>()) {
+                } else if is_null(&s.iter().collect::<String>().trim()) {
+                    true
+                } else if is_number(&s.iter().collect::<String>().trim()) {
                     true
                 } else {
                     false
@@ -45,6 +45,9 @@ impl JsonObject {
 }
 
 fn is_str(content: &str) -> bool {
+    if !content.starts_with('"') || !content.ends_with('"') {
+        return false;
+    }
     let mut is_backslash = false;
 
     let mut count_four_chars = 0;
@@ -114,83 +117,52 @@ pub fn parse(content: String) -> bool {
                     break;
                 } else if ch.is_whitespace() {
                     continue;
-                } else if ch == '"' {
-                    state = JsonParserState::InKey;
-                    json_object = JsonObject::JsonString(String::new());
                 } else {
-                    is_valid = false;
-                    break;
+                    json_object = JsonObject::JsonString(ch.to_string());
+                    state = JsonParserState::InKey;
                 }
             }
             JsonParserState::Start => {
-                if ch == '"' {
-                    state = JsonParserState::InKey;
-                    json_object = JsonObject::JsonString(String::new());
-                } else if ch.is_whitespace() {
+                if ch.is_whitespace() {
                     continue;
                 } else {
-                    is_valid = false;
-                    break;
+                    json_object = JsonObject::JsonString(ch.to_string());
+                    state = JsonParserState::InKey;
                 }
             }
             JsonParserState::InKey => {
-                if ch == '"' {
-                    state = JsonParserState::InSeparator;
+                if ch == ':' {
                     if !json_object.is_valid() {
                         is_valid = false;
                         break;
                     }
-                } else {
-                    json_object.push(ch);
-                }
-            }
-            JsonParserState::InSeparator => {
-                if ch == ':' {
-                    state = JsonParserState::SearchValue;
-                } else if ch.is_whitespace() {
-                    continue;
-                } else {
-                    is_valid = false;
-                    break;
-                }
-            }
-            JsonParserState::SearchValue => {
-                if ch == '"' {
                     state = JsonParserState::InValue;
                     json_object = JsonObject::JsonString("".to_string());
-                } else if ch.is_whitespace() {
-                    continue;
-                } else if ch != ',' {
-                    state = JsonParserState::InValue;
-                    json_object = JsonObject::JsonObject(Vec::new());
-                    json_object.push(ch);
                 } else {
-                    is_valid = false;
-                    break;
+                    json_object.push(ch);
                 }
             }
+
             JsonParserState::InValue => {
-                if ch == '"' {
-                    state = JsonParserState::EndObject;
+                if ch.is_whitespace() {
+                    continue;
+                } else if ch == ',' {
                     if !json_object.is_valid() {
                         is_valid = false;
                         break;
                     }
+                    state = JsonParserState::Start;
+                } else if ch == '}' {
+                    if !json_object.is_valid() {
+                        is_valid = false;
+                    }
+                    state = JsonParserState::EndObject;
                 } else {
                     json_object.push(ch);
                 }
             }
             JsonParserState::EndObject => {
-                if ch == '}' {
-                    break;
-                } else if ch.is_whitespace() {
-                    continue;
-                } else if ch == ',' {
-                    state = JsonParserState::Start;
-                } else {
-                    is_valid = false;
-                    break;
-                }
+                break;
             }
         }
     }
