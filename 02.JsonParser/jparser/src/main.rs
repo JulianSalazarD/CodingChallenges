@@ -11,4 +11,5 @@ fn main() {
         eprintln!("Application error: {err}");
         process::exit(1);
     });
+
 }

@@ -19,6 +19,11 @@ cargo run -- tests/step2/valid2.json
 cargo run -- tests/step3/invalid.json
 cargo run -- tests/step3/valid.json
 
+# step4
+cargo run -- tests/step4/invalid.json
+cargo run -- tests/step4/valid.json
+cargo run -- tests/step4/valid2.json
+
 
 set_color green
 echo "✅ Todas las ejecuciones han finalizado."
