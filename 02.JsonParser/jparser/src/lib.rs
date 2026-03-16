@@ -3,7 +3,7 @@ use std::fs;
 
 pub mod json;
 
-use crate::json::json::JsonParser;
+use crate::json::json::{Json, JsonParser};
 
 pub fn build(mut args: impl Iterator<Item = String>) -> Result<String, &'static str> {
     args.next();
@@ -22,10 +22,15 @@ pub fn run(file_path: String) -> Result<(), Box<dyn Error>> {
 
     let mut json_object = JsonParser::new();
     json_object.build_json_object(content);
-    // if json_object.is_valid() {
-    //     println!("0")
-    // } else {
-    //     println!("1")
-    // }
+
+    match Json::build(&mut json_object) {
+        Ok(_json) => {
+            println!("0");
+        }
+        Err(_e) => {
+            println!("1");
+        }
+    }
+
     Ok(())
 }

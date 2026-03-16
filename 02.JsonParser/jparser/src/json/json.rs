@@ -1,87 +1,154 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind};
 
-trait Json {
-    fn build(tokens: &mut VecDeque<char>) -> Result<Box<Self>, Error>;
+const MAX_DEPTH: usize = 20;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Json {
+    String(String),
+    Value(Box<Json>),
+    Array(Vec<Json>),
+    Object(HashMap<String, Json>),
 }
 
-struct JsonKey {
-    key: String,
-}
+impl Json {
+    pub fn build(json_parser: &mut JsonParser) -> Result<Json, Error> {
+        let mut depth: usize = 0;
 
-impl Json for JsonKey {
-    fn build(tokens: &mut VecDeque<char>) -> Result<Box<Self>, Error> {
-        let mut key = String::new();
-
-        let mut is_backslash = false;
-
-        while let Some(c) = tokens.pop_front() {
-            if c == '\\' && !is_backslash {
-                is_backslash = true;
-                continue;
-            } else if c == '"' && !is_backslash {
-                break;
+        if json_parser.tokens.is_empty() {
+            return Err(Error::new(ErrorKind::Other, "empty"));
+        } else if json_parser.count_bracket != 0 || json_parser.count_brace != 0 {
+            return Err(Error::new(ErrorKind::Other, "unbalanced brackets"));
+        } else if !json_parser.temp_json.is_empty() {
+            return Err(Error::new(ErrorKind::Other, "unexpected characters"));
+        }
+        if json_parser.tokens.front().unwrap() == "{" {
+            let json = Json::build_object(json_parser, &mut depth)?;
+            if !json_parser.tokens.is_empty() {
+                return Err(Error::new(ErrorKind::Other, "expected end of array"));
             }
-            key.push(c);
-            is_backslash = false;
-        }
-        Ok(Box::new(JsonKey { key }))
-    }
-}
-
-struct JsonValue<T: Json> {
-    value: T,
-}
-
-impl<T: Json> Json for JsonValue<T> {
-    fn build(mut tokens: VecDeque<char>) -> Result<Box<Self>, Error> {
-        while let Some(c) = tokens.pop_front() {
-            if c == '"' {}
-        }
-    }
-}
-
-struct JsonArray<T: Json> {
-    array: Vec<T>,
-}
-
-impl<T: Json> Json for JsonArray<T> {
-    fn build(mut tokens: VecDeque<char>) -> (Result<Box<Self>, Error>, VecDeque<char>) {
-        let mut array = Vec::new();
-        while let Some(c) = tokens.pop_front() {
-            if c == ']' {
-                break;
+            return Ok(json);
+        } else if json_parser.tokens.front().unwrap() == "[" {
+            let json = Json::build_array(json_parser, &mut depth)?;
+            if !json_parser.tokens.is_empty() {
+                return Err(Error::new(ErrorKind::Other, "expected end of array"));
             }
-            let (val, tokens) = T::build(tokens)?;
-            array.push(val);
+            return Ok(json);
+        } else {
+            return Err(Error::new(ErrorKind::Other, "Not an object or array"));
         }
-        Ok((Ok(Box::new(JsonArray { array })), tokens))
     }
-}
 
-struct JSonObject<T: Json> {
-    object: HashMap<String, T>,
-}
+    fn build_object(json_parser: &mut JsonParser, depth: &mut usize) -> Result<Json, Error> {
+        *depth += 1;
 
-impl<T: Json> Json for JSonObject<T> {
-    fn build(mut tokens: VecDeque<char>) -> (Result<Box<Self>, Error>, VecDeque<char>) {
+        if *depth == MAX_DEPTH {
+            return Err(Error::new(ErrorKind::Other, "exceeded max depth"));
+        }
+
         let mut object = HashMap::new();
-        while let Some(c) = tokens.pop_front() {
-            if c == '}' {
-                break;
-            }
-            let (key, tokens) = T::build(tokens)?;
-            let (val, tokens) = T::build(tokens)?;
-            object.insert(key, val);
-        }
-        Ok((Ok(Box::new(JSonObject { object })), tokens))
-    }
-}
 
-pub enum JsonState {
-    Key,
-    Value,
-    Array,
+        let mut is_coma = false;
+
+        if json_parser.tokens.front().unwrap() != "{" {
+            return Err(Error::new(ErrorKind::Other, "expected '{'"));
+        }
+        json_parser.tokens.pop_front();
+
+        while !json_parser.tokens.is_empty() {
+            let key = json_parser.tokens.pop_front().unwrap();
+            if key == "}" {
+                if is_coma {
+                    return Err(Error::new(ErrorKind::Other, "expected key"));
+                }
+                return Ok(Json::Object(object));
+            }
+
+            if !is_str(&key) {
+                return Err(Error::new(ErrorKind::Other, "key must be a string"));
+            }
+
+            if json_parser.tokens.pop_front().unwrap() != ":" {
+                return Err(Error::new(ErrorKind::Other, "expected ':' after key"));
+            }
+
+            if json_parser.tokens.front().unwrap() == "{" {
+                let value = Json::build_object(json_parser, depth)?;
+                object.insert(key, value);
+            } else if json_parser.tokens.front().unwrap() == "[" {
+                let value = Json::build_array(json_parser, depth)?;
+                object.insert(key, value);
+            } else {
+                let value = json_parser.tokens.pop_front().unwrap();
+                if !is_value(&value) {
+                    return Err(Error::new(ErrorKind::Other, "value must be valid"));
+                }
+                object.insert(key, Json::String(value));
+            }
+
+            if json_parser.tokens.front().unwrap() == "," {
+                is_coma = true;
+                json_parser.tokens.pop_front();
+            } else {
+                is_coma = false;
+            }
+        }
+        Ok(Json::Object(object))
+    }
+
+    fn build_array(json_parser: &mut JsonParser, depth: &mut usize) -> Result<Json, Error> {
+        *depth += 1;
+
+        if *depth == MAX_DEPTH {
+            return Err(Error::new(ErrorKind::Other, "exceeded max depth"));
+        }
+
+        let mut array = Vec::new();
+
+        let mut is_coma = false;
+
+        if json_parser.tokens.front().unwrap() != "[" {
+            return Err(Error::new(ErrorKind::Other, "expected '['"));
+        }
+        json_parser.tokens.pop_front();
+
+        while !json_parser.tokens.is_empty() {
+            match json_parser.tokens.front().unwrap().as_str() {
+                "[" => {
+                    let json_array = Json::build_array(json_parser, depth)?;
+                    array.push(json_array);
+                }
+                "]" => {
+                    if is_coma {
+                        return Err(Error::new(ErrorKind::Other, "expected key"));
+                    }
+                    json_parser.tokens.pop_front();
+                    return Ok(Json::Array(array));
+                }
+                "{" => {
+                    let json_object = Json::build_object(json_parser, depth)?;
+                    array.push(json_object);
+                }
+                _ => {
+                    let value = json_parser.tokens.pop_front().unwrap();
+                    if is_value(&value) {
+                        array.push(Json::String(value));
+                    } else {
+                        return Err(Error::new(ErrorKind::Other, "value must be valid"));
+                    }
+                }
+            }
+
+            if json_parser.tokens.front().unwrap() == "," {
+                is_coma = true;
+                json_parser.tokens.pop_front();
+            } else {
+                is_coma = false;
+            }
+        }
+
+        Ok(Json::Array(array))
+    }
 }
 
 #[derive(Debug)]
@@ -157,152 +224,42 @@ impl JsonParser {
             }
         }
     }
-
-    fn parser(&mut self) {}
-
-    // pub fn is_valid(&mut self) -> bool {
-
-    //     dbg!(&self.tokens);
-
-    //     if self.count_brace != 0 || self.count_bracket != 0 {
-    //         return false;
-    //     } else if self.tokens.is_empty() {
-    //         return false;
-    //     }
-
-    //     let mut is_valid = true;
-
-    //     if self.tokens.front() == Some(&"[".to_string()){
-    //         self.json_parser_state = JsonParserState::InitJsonArray;
-    //     }
-
-    //     while !self.tokens.is_empty() {
-
-    //         let s = self.tokens.pop_front().unwrap();
-
-    //         match self.json_parser_state {
-    //             JsonParserState::InitJsonObject => {
-    //                 if s != "{" {
-    //                     is_valid = false;
-    //                     break;
-    //                 }else if self.tokens.front() == Some(&"}".to_string()) {
-    //                     self.json_parser_state = JsonParserState::EndObject;
-    //                 } else {
-    //                     self.json_parser_state = JsonParserState::InKey;
-    //                 }
-    //             }
-    //             JsonParserState::InKey => {
-    //                 if !is_str(&s) {
-    //                     is_valid = false;
-    //                     break;
-    //                 }
-    //                 self.json_parser_state = JsonParserState::Separator;
-
-    //             }
-    //             JsonParserState::Separator => {
-    //                 if s != ":" {
-    //                     is_valid = false;
-    //                     break;
-    //                 }else if self.tokens.front() == Some(&"{".to_string()) {
-    //                     self.json_parser_state = JsonParserState::InitJsonObject;
-    //                 } else if self.tokens.front() == Some(&"[".to_string()) {
-    //                     self.json_parser_state = JsonParserState::InitJsonArray;
-    //                 } else {
-    //                     self.json_parser_state = JsonParserState::InValue;
-    //                 }
-    //             }
-    //             JsonParserState::InValue => {
-    //                 if !is_value(&s) {
-    //                     is_valid = false;
-    //                     break;
-    //                 }
-    //                 if self.tokens.front() == Some(&",".to_string()) {
-    //                     self.tokens.pop_front();
-    //                     self.json_parser_state = JsonParserState::InKey;
-    //                 }else {
-    //                     self.json_parser_state = JsonParserState::EndObject;
-    //                 }
-
-    //             }
-    //             JsonParserState::InitJsonArray => {
-    //                 if s == "]" {
-    //                     if self.tokens.front() == Some(&",".to_string()) {
-    //                         self.tokens.pop_front();
-    //                         self.json_parser_state = JsonParserState::InKey;
-    //                     } else {
-    //                         self.json_parser_state = JsonParserState::EndObject;
-    //                     }
-    //                 } else if self.tokens.front() == Some(&"{".to_string())  {
-    //                     self.json_parser_state = JsonParserState::InitJsonObject;
-    //                 } else if s == "[" {
-    //                     continue;
-    //                 }else if !is_value(&s) {
-    //                     is_valid = false;
-    //                     break;
-
-    //                 }else if self.tokens.front() == Some(&",".to_string()) {
-    //                     self.tokens.pop_front();
-    //                 } else if self.tokens.front() == Some(&"]".to_string()) {
-    //                     continue;
-    //                 } else {
-    //                     is_valid = false;
-    //                     break;
-    //                 }
-
-    //             }
-
-    //             JsonParserState::EndObject => {
-    //                 if !(s == "}" || s == "]") {
-
-    //                     is_valid = false;
-    //                     break;
-    //                 }
-    //                 if self.tokens.front() == Some(&",".to_string()) && s == "}" {
-    //                     self.tokens.pop_front();
-    //                     self.json_parser_state = JsonParserState::InKey;
-    //                 } else if  self.tokens.front() == Some(&",".to_string()) && s == "]" {
-    //                     self.tokens.pop_front();
-    //                     self.json_parser_state = JsonParserState::InitJsonArray;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     is_valid
-    // }
 }
 
 fn is_str(content: &str) -> bool {
-    if !content.starts_with('"') || !content.ends_with('"') {
+    if content.len() < 2 || !content.starts_with('"') || !content.ends_with('"') {
         return false;
     }
-    let mut is_backslash = false;
+    let inner = &content[1..content.len() - 1];
 
-    let mut count_four_chars = 0;
-
-    for ch in content.chars() {
-        if count_four_chars > 0 {
-            if !ch.is_digit(16) {
-                return false;
-            }
-            count_four_chars -= 1;
-            continue;
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if (ch as u32) < 0x20 {
+            return false;
         }
 
         if ch == '\\' {
-            is_backslash = true;
-            continue;
-        }
-        if is_backslash {
-            is_backslash = false;
-            if ch == 'u' {
-                count_four_chars = 4;
-            } else if !matches!(ch, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't') {
-                return false;
+            match chars.next() {
+                Some('"') | Some('\\') | Some('/') | Some('b') | Some('f') | Some('n')
+                | Some('r') | Some('t') => {
+                    continue;
+                }
+                Some('u') => {
+                    for _ in 0..4 {
+                        match chars.next() {
+                            Some(hex) if hex.is_ascii_hexdigit() => continue,
+                            _ => return false,
+                        }
+                    }
+                }
+                _ => return false,
             }
+        } else if ch == '"' {
+            return false;
         }
     }
 
-    return true;
+    true
 }
 
 fn is_bool(content: &str) -> bool {
@@ -314,10 +271,34 @@ fn is_null(content: &str) -> bool {
 }
 
 fn is_number(content: &str) -> bool {
-    match content.parse::<f64>() {
-        Ok(_) => true,
-        Err(_) => false,
+    if content.is_empty() {
+        return false;
     }
+
+    let bytes = content.as_bytes();
+    let mut i = 0;
+
+    if bytes[i] == b'-' {
+        i += 1;
+        if i == bytes.len() {
+            return false;
+        }
+    }
+
+    if bytes[i] == b'0' {
+        i += 1;
+        if i < bytes.len() && bytes[i].is_ascii_digit() {
+            return false;
+        }
+    } else if bytes[i].is_ascii_digit() {
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+    } else {
+        return false;
+    }
+
+    content.parse::<f64>().is_ok()
 }
 
 fn is_value(content: &str) -> bool {
