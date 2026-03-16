@@ -1,9 +1,15 @@
+//! JSON Parser Implementation
+//!
+//! Provides a recursive descent JSON parser with tokenization and validation.
+
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind};
 
+/// Maximum allowed nesting depth for JSON objects and arrays
 const MAX_DEPTH: usize = 20;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Represents the different types of values in JSON
 pub enum Json {
     String(String),
     Value(Box<Json>),
@@ -12,6 +18,14 @@ pub enum Json {
 }
 
 impl Json {
+    /// Builds and validates a complete JSON value from the token stream.
+    ///
+    /// # Arguments
+    /// * `json_parser` - Mutable reference to the JsonParser with tokens
+    ///
+    /// # Returns
+    /// * `Ok(Json)` - Valid JSON object or array
+    /// * `Err(Error)` - If JSON is empty, has unbalanced brackets, or invalid structure
     pub fn build(json_parser: &mut JsonParser) -> Result<Json, Error> {
         let mut depth: usize = 0;
 
@@ -39,6 +53,15 @@ impl Json {
         }
     }
 
+    /// Recursively builds a JSON object from tokens.
+    ///
+    /// # Arguments
+    /// * `json_parser` - Mutable reference to the JsonParser
+    /// * `depth` - Current nesting depth (used for limit checking)
+    ///
+    /// # Returns
+    /// * `Ok(Json::Object)` - Valid JSON object
+    /// * `Err(Error)` - If object structure is invalid
     fn build_object(json_parser: &mut JsonParser, depth: &mut usize) -> Result<Json, Error> {
         *depth += 1;
 
@@ -96,6 +119,15 @@ impl Json {
         Ok(Json::Object(object))
     }
 
+    /// Recursively builds a JSON array from tokens.
+    ///
+    /// # Arguments
+    /// * `json_parser` - Mutable reference to the JsonParser
+    /// * `depth` - Current nesting depth (used for limit checking)
+    ///
+    /// # Returns
+    /// * `Ok(Json::Array)` - Valid JSON array
+    /// * `Err(Error)` - If array structure is invalid
     fn build_array(json_parser: &mut JsonParser, depth: &mut usize) -> Result<Json, Error> {
         *depth += 1;
 
@@ -152,6 +184,8 @@ impl Json {
 }
 
 #[derive(Debug)]
+/// Tokenizer for JSON content.
+/// Converts a JSON string into a queue of tokens for parsing.
 pub struct JsonParser {
     tokens: VecDeque<String>,
     temp_json: Vec<char>,
@@ -160,6 +194,7 @@ pub struct JsonParser {
 }
 
 impl JsonParser {
+    /// Creates a new JsonParser instance with empty state.
     pub fn new() -> Self {
         Self {
             tokens: VecDeque::new(),
@@ -169,6 +204,10 @@ impl JsonParser {
         }
     }
 
+    /// Pushes a token to the queue and tracks bracket/brace counts.
+    ///
+    /// # Arguments
+    /// * `s` - The string token to add
     fn push(&mut self, s: String) {
         if s.is_empty() {
             return;
@@ -184,6 +223,10 @@ impl JsonParser {
         self.tokens.push_back(s);
     }
 
+    /// Flushes any pending characters and pushes a delimiter token.
+    ///
+    /// # Arguments
+    /// * `s` - The delimiter string to add
     fn push_and_clear(&mut self, s: String) {
         if !self.temp_json.is_empty() {
             self.push(self.temp_json.iter().collect::<String>());
@@ -192,6 +235,10 @@ impl JsonParser {
         self.push(s);
     }
 
+    /// Tokenizes JSON content into a stream of tokens.
+    ///
+    /// # Arguments
+    /// * `content` - The raw JSON string to tokenize
     pub fn build_json_object(&mut self, content: String) {
         self.tokens.clear();
         self.temp_json.clear();
@@ -226,6 +273,14 @@ impl JsonParser {
     }
 }
 
+/// Validates if a string is a valid JSON string literal.
+///
+/// # Arguments
+/// * `content` - The string to validate
+///
+/// # Returns
+/// * `true` - If the string is valid JSON string format
+/// * `false` - Otherwise
 fn is_str(content: &str) -> bool {
     if content.len() < 2 || !content.starts_with('"') || !content.ends_with('"') {
         return false;
@@ -262,14 +317,38 @@ fn is_str(content: &str) -> bool {
     true
 }
 
+/// Validates if a string is a valid JSON boolean literal.
+///
+/// # Arguments
+/// * `content` - The string to validate
+///
+/// # Returns
+/// * `true` - If the string is "true" or "false"
+/// * `false` - Otherwise
 fn is_bool(content: &str) -> bool {
     matches!(content, "true" | "false")
 }
 
+/// Validates if a string is a valid JSON null literal.
+///
+/// # Arguments
+/// * `content` - The string to validate
+///
+/// # Returns
+/// * `true` - If the string is "null"
+/// * `false` - Otherwise
 fn is_null(content: &str) -> bool {
     matches!(content, "null")
 }
 
+/// Validates if a string is a valid JSON number.
+///
+/// # Arguments
+/// * `content` - The string to validate
+///
+/// # Returns
+/// * `true` - If the string represents a valid JSON number
+/// * `false` - Otherwise
 fn is_number(content: &str) -> bool {
     if content.is_empty() {
         return false;
@@ -301,6 +380,14 @@ fn is_number(content: &str) -> bool {
     content.parse::<f64>().is_ok()
 }
 
+/// Validates if a string is any valid JSON value (string, boolean, null, or number).
+///
+/// # Arguments
+/// * `content` - The string to validate
+///
+/// # Returns
+/// * `true` - If the string is any valid JSON value type
+/// * `false` - Otherwise
 fn is_value(content: &str) -> bool {
     if is_str(content) {
         true

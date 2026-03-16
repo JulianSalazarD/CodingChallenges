@@ -11,3 +11,4 @@ Cada carpeta contiene un reto independiente con su propio proyecto y documentaci
 | # | Reto | Descripcion | Lenguaje |
 |---|------|-------------|----------|
 | 01 | [Own wc Tool](./01.OwnWcTool/ccwc) | Implementacion del comando Unix `wc`: cuenta bytes, lineas, palabras y caracteres en archivos o stdin | Rust |
+| 02 | [JSON Parser](./02.JsonParser/jparser) | Implementacion de un parser y validador de JSON | Rust |
